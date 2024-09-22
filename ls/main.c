@@ -7,17 +7,16 @@
 #include <pwd.h>
 #include <grp.h>
 #include <time.h>
-#include <errno.h>
 
-#define RESET_COLOR "\033[0m"
-#define BLUE_COLOR "\033[34m"
-#define GREEN_COLOR "\033[32m"
-#define CYAN_COLOR "\033[36m"
+#define COLOR_RESET "\033[0m"
+#define COLOR_BLUE "\033[34m"
+#define COLOR_GREEN "\033[32m"
+#define COLOR_CYAN "\033[36m"
 
-// Функция для обработки файлов и получения информации о них (например, для опции -l)
-void print_file_info(const char *filename, struct stat *file_stat, int long_format) {
-    if (long_format) {
-        // Вывод прав доступа
+// Функция для отображения информации о файле
+void display_file_info(const char *name, struct stat *file_stat, int detailed) {
+    if (detailed) {
+        // Права доступа
         printf((S_ISDIR(file_stat->st_mode)) ? "d" : "-");
         printf((file_stat->st_mode & S_IRUSR) ? "r" : "-");
         printf((file_stat->st_mode & S_IWUSR) ? "w" : "-");
@@ -29,101 +28,109 @@ void print_file_info(const char *filename, struct stat *file_stat, int long_form
         printf((file_stat->st_mode & S_IWOTH) ? "w" : "-");
         printf((file_stat->st_mode & S_IXOTH) ? "x" : "-");
 
-        // Вывод количества ссылок, владельца и группы
+        // Количество ссылок
         printf(" %ld", file_stat->st_nlink);
+
+        // Владелец и группа
         printf(" %s", getpwuid(file_stat->st_uid)->pw_name);
         printf(" %s", getgrgid(file_stat->st_gid)->gr_name);
 
-        // Вывод размера файла
+        // Размер файла
         printf(" %ld", file_stat->st_size);
 
-        // Вывод времени последней модификации
-        char time_str[20];
-        strftime(time_str, sizeof(time_str), "%b %d %H:%M", localtime(&file_stat->st_mtime));
-        printf(" %s", time_str);
+        // Время последней модификации
+        char time_buff[20];
+        strftime(time_buff, sizeof(time_buff), "%b %d %H:%M", localtime(&file_stat->st_mtime));
+        printf(" %s", time_buff);
     }
 
-    // Цветной вывод имени файла в зависимости от типа
+    // Цветное выделение типов файлов
     if (S_ISDIR(file_stat->st_mode)) {
-        printf(" %s%s%s\n", BLUE_COLOR, filename, RESET_COLOR);
+        printf(" %s%s%s\n", COLOR_BLUE, name, COLOR_RESET);
     } else if (file_stat->st_mode & S_IXUSR) {
-        printf(" %s%s%s\n", GREEN_COLOR, filename, RESET_COLOR);
+        printf(" %s%s%s\n", COLOR_GREEN, name, COLOR_RESET);
     } else if (S_ISLNK(file_stat->st_mode)) {
-        printf(" %s%s%s\n", CYAN_COLOR, filename, RESET_COLOR);
+        printf(" %s%s%s\n", COLOR_CYAN, name, COLOR_RESET);
     } else {
-        printf(" %s\n", filename);
+        printf(" %s\n", name);
     }
 }
 
-// Функция для сравнения строк (для сортировки)
-int compare(const void *a, const void *b) {
+// Функция для сортировки имён файлов (сравнение строк)
+int sort_files(const void *a, const void *b) {
     return strcmp(*(const char **)a, *(const char **)b);
 }
 
 int main(int argc, char *argv[]) {
     int opt;
-    int long_format = 0, all_files = 0;
+    int show_detailed = 0, show_all = 0;
 
-    // Обработка опций командной строки с помощью getopt()
+    // Обработка аргументов командной строки с помощью getopt()
     while ((opt = getopt(argc, argv, "la")) != -1) {
         switch (opt) {
             case 'l':
-                long_format = 1;
+                show_detailed = 1; // Показать детальную информацию
                 break;
             case 'a':
-                all_files = 1;
+                show_all = 1; // Показать скрытые файлы
                 break;
             default:
-                fprintf(stderr, "Usage: %s [-l] [-a] [directory]\n", argv[0]);
+                fprintf(stderr, "Использование: %s [-l] [-a] [директория]\n", argv[0]);
                 exit(EXIT_FAILURE);
         }
     }
 
-    // Путь к директории, если указан
-    const char *dir_path = (optind < argc) ? argv[optind] : ".";
+    // Путь к директории по умолчанию — текущая директория
+    const char *directory = (optind < argc) ? argv[optind] : ".";
 
     // Открытие директории
-    DIR *dir = opendir(dir_path);
+    DIR *dir = opendir(directory);
     if (!dir) {
-        perror("opendir");
+        perror("Ошибка при открытии директории");
         return EXIT_FAILURE;
     }
 
     struct dirent *entry;
-    char **files = NULL;
-    size_t file_count = 0;
+    char **file_list = NULL;
+    size_t num_files = 0;
 
     // Чтение содержимого директории
     while ((entry = readdir(dir)) != NULL) {
-        // Пропуск скрытых файлов, если опция -a не указана
-        if (!all_files && entry->d_name[0] == '.') {
-            continue;
+        if (!show_all && entry->d_name[0] == '.') {
+            continue; // Пропуск скрытых файлов, если флаг -a не установлен
         }
 
-        files = realloc(files, sizeof(char *) * (file_count + 1));
-        files[file_count] = strdup(entry->d_name);
-        file_count++;
+        // Добавляем имя файла в массив
+        file_list = realloc(file_list, sizeof(char *) * (num_files + 1));
+        if (!file_list) {
+            perror("Ошибка выделения памяти");
+            closedir(dir);
+            return EXIT_FAILURE;
+        }
+        file_list[num_files] = strdup(entry->d_name);
+        num_files++;
     }
     closedir(dir);
 
-    // Сортировка файлов в алфавитном порядке
-    qsort(files, file_count, sizeof(char *), compare);
+    // Сортировка имён файлов по алфавиту
+    qsort(file_list, num_files, sizeof(char *), sort_files);
 
-    // Вывод файлов
-    for (size_t i = 0; i < file_count; i++) {
-        char filepath[1024];
-        snprintf(filepath, sizeof(filepath), "%s/%s", dir_path, files[i]);
+    // Вывод информации о файлах
+    for (size_t i = 0; i < num_files; i++) {
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/%s", directory, file_list[i]);
 
         struct stat file_stat;
-        if (stat(filepath, &file_stat) == -1) {
-            perror("stat");
+        if (stat(path, &file_stat) == -1) {
+            perror("Ошибка получения информации о файле");
+            free(file_list[i]);
             continue;
         }
 
-        print_file_info(files[i], &file_stat, long_format);
-        free(files[i]);
+        display_file_info(file_list[i], &file_stat, show_detailed);
+        free(file_list[i]);
     }
-    free(files);
+    free(file_list);
 
     return 0;
 }

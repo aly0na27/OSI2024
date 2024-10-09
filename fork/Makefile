@@ -1,12 +1,12 @@
 # Флаги компилятора
 CFLAGS = -Wall -g
 
-all: mycat
+all: myfork
 
-mycat: ./cat.c
-	gcc $(CFLAGS) -o mycat ./cat.c
+myfork: ./main.c
+	gcc $(CFLAGS) -o myfork ./main.c
 
 clean:
-	rm -f mycat
+	rm -f myfork
 
 rebuild: clean all

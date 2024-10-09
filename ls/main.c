@@ -8,18 +8,19 @@
 #include <grp.h>
 #include <time.h>
 
-//todo доделать цвета
-
 #define COLOR_RESET "\033[0m"
 #define COLOR_BLUE "\033[34m"
 #define COLOR_GREEN "\033[32m"
 #define COLOR_CYAN "\033[36m"
 
 // Функция для отображения информации о файле
-void display_file_info(const char *name, struct stat *file_stat, int detailed) {
+void display_file_info(const char *path, const char *name, struct stat *file_stat, int detailed) {
+    char link_target[1024]; // Буфер для хранения пути символической ссылки
+    ssize_t link_len;
+
     if (detailed) {
         // Права доступа
-        printf((S_ISDIR(file_stat->st_mode)) ? "d" : "-");
+        printf((S_ISDIR(file_stat->st_mode)) ? "d" : (S_ISLNK(file_stat->st_mode)) ? "l" : "-");
         printf((file_stat->st_mode & S_IRUSR) ? "r" : "-");
         printf((file_stat->st_mode & S_IWUSR) ? "w" : "-");
         printf((file_stat->st_mode & S_IXUSR) ? "x" : "-");
@@ -31,28 +32,47 @@ void display_file_info(const char *name, struct stat *file_stat, int detailed) {
         printf((file_stat->st_mode & S_IXOTH) ? "x" : "-");
 
         // Количество ссылок
-        printf(" %ld", file_stat->st_nlink);
+        printf(" %-5ld", file_stat->st_nlink);
 
         // Владелец и группа
-        printf(" %s", getpwuid(file_stat->st_uid)->pw_name);
-        printf(" %s", getgrgid(file_stat->st_gid)->gr_name);
+        printf(" %-10s", getpwuid(file_stat->st_uid)->pw_name);
+        printf(" %-10s", getgrgid(file_stat->st_gid)->gr_name);
 
         // Размер файла
-        printf(" %ld", file_stat->st_size);
+        printf(" %8ld", file_stat->st_size);
 
         // Время последней модификации
         char time_buff[20];
         strftime(time_buff, sizeof(time_buff), "%b %d %H:%M", localtime(&file_stat->st_mtime));
-        printf(" %s", time_buff);
+        printf(" %10s", time_buff);
     }
 
-    // Цветное выделение типов файлов
+
+    // Цветное выделение типов файлов и обработка символической ссылки
     if (S_ISDIR(file_stat->st_mode)) {
         printf(" %s%s%s\n", COLOR_BLUE, name, COLOR_RESET);
-    } else if (file_stat->st_mode & S_IXUSR) {
+    }
+    else if ((file_stat->st_mode & S_IXUSR) && !S_ISLNK(file_stat->st_mode)) {
         printf(" %s%s%s\n", COLOR_GREEN, name, COLOR_RESET);
-    } else if (S_ISLNK(file_stat->st_mode)) {
-        printf(" %s%s%s\n", COLOR_CYAN, name, COLOR_RESET);
+    }
+    else if ((file_stat->st_mode & S_IXUSR) && S_ISLNK(file_stat->st_mode)) {
+        // Читаем, на что указывает символическая ссылка
+        link_len = readlink(path, link_target, sizeof(link_target) - 1);
+        if (link_len != -1) {
+            link_target[link_len] = '\0'; // Завершаем строку
+            printf(" %s%s%s -> %s\n", COLOR_CYAN, name, COLOR_RESET, link_target);
+        } else {
+            printf(" %s%s%s\n", COLOR_CYAN, name, COLOR_RESET);
+        }
+    } else if (file_stat->st_mode & S_IXUSR) {
+        // Читаем, на что указывает символическая ссылка
+        link_len = readlink(path, link_target, sizeof(link_target) - 1);
+        if (link_len != -1) {
+            link_target[link_len] = '\0'; // Завершаем строку
+            printf(" %s%s%s -> %s\n", COLOR_CYAN, name, COLOR_RESET, link_target);
+        } else {
+            printf(" %s%s%s\n", COLOR_CYAN, name, COLOR_RESET);
+        }
     } else {
         printf(" %s\n", name);
     }
@@ -95,6 +115,7 @@ int main(int argc, char *argv[]) {
     struct dirent *entry;
     char **file_list = NULL;
     size_t num_files = 0;
+    long total_blocks = 0;
 
     // Чтение содержимого директории
     while ((entry = readdir(dir)) != NULL) {
@@ -111,11 +132,24 @@ int main(int argc, char *argv[]) {
         }
         file_list[num_files] = strdup(entry->d_name);
         num_files++;
+
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/%s", directory, entry->d_name);
+        struct stat file_stat;
+        if (lstat(path, &file_stat) == -1) {
+            perror("Ошибка получения информации о файле");
+            free(file_list[num_files - 1]);
+            num_files--;
+            continue;
+        }
+        total_blocks += file_stat.st_blocks;
     }
     closedir(dir);
 
     // Сортировка имён файлов по алфавиту
     qsort(file_list, num_files, sizeof(char *), sort_files);
+
+    printf("total %ld\n", total_blocks);
 
     // Вывод информации о файлах
     for (size_t i = 0; i < num_files; i++) {
@@ -123,13 +157,14 @@ int main(int argc, char *argv[]) {
         snprintf(path, sizeof(path), "%s/%s", directory, file_list[i]);
 
         struct stat file_stat;
-        if (stat(path, &file_stat) == -1) {
+        if (lstat(path, &file_stat) == -1) {
             perror("Ошибка получения информации о файле");
             free(file_list[i]);
             continue;
         }
 
-        display_file_info(file_list[i], &file_stat, show_detailed);
+//        display_file_info(file_list[i], &file_stat, show_detailed);
+        display_file_info(path, file_list[i], &file_stat, show_detailed);
         free(file_list[i]);
     }
     free(file_list);

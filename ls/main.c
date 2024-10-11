@@ -35,8 +35,21 @@ void display_file_info(const char *path, const char *name, struct stat *file_sta
         printf(" %-5ld", file_stat->st_nlink);
 
         // Владелец и группа
-        printf(" %-10s", getpwuid(file_stat->st_uid)->pw_name);
-        printf(" %-10s", getgrgid(file_stat->st_gid)->gr_name);
+
+        struct passwd *pw = getpwuid(file_stat->st_uid);
+        if (pw != NULL) {
+            printf(" %-10s", pw->pw_name);
+        } else {
+            printf(" %-10d", file_stat->st_uid);
+        }
+
+        // Проверка для имени группы
+        struct group *gr = getgrgid(file_stat->st_gid);
+        if (gr != NULL) {
+            printf(" %-10s", gr->gr_name);
+        } else {
+            printf(" %-10d", file_stat->st_gid);
+        }
 
         // Размер файла
         printf(" %8ld", file_stat->st_size);

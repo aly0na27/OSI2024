@@ -1,0 +1,3 @@
+/Users/aly0na27/CLionProjects/OSI2024/cmake-build-debug/CMakeFiles/OS.dir
+/Users/aly0na27/CLionProjects/OSI2024/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/aly0na27/CLionProjects/OSI2024/cmake-build-debug/CMakeFiles/rebuild_cache.dir
